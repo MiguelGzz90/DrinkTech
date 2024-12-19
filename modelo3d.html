@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modelo 3D con Textura</title>
+    <style>
+        html, body {
+            margin: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            display: block;
+        }
+        #fileInput {
+            display: none; /* Oculta el input */
+        }
+        #uploadButton {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #uploadButton img {
+            width: 140px;
+            height: 140px;
+        }
+
+        /* Estilos de advertencias */
+        .warning {
+            background-color: #ff0000;
+            color: #fff;
+            padding: 10px;
+            font-family: Poppins, sans-serif;
+            font-weight: normal;
+            text-align: center;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 300px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Input oculto para subir archivos -->
+    <input type="file" id="fileInput" accept="image/jpeg">
+    <!-- Botón SVG para abrir la ventana de selección -->
+    <div id="uploadButton">
+        <img src="https://static.wixstatic.com/shapes/8f321f_2fda04fe84d64c6a8a0a2de744683107.svg" alt="Upload Texture">
+    </div>
+
+    <!-- Librerías de Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        camera.position.z = 2;
+
+        let model;
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let velocity = 0;
+
+        // Cargar Environment Map e iluminación
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('https://static.wixstatic.com/media/8f321f_53a51c423b11465b9121bc23f4abc2c9~mv2.jpg', (texture) => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            scene.environment = texture;
+
+            const gltfLoader = new THREE.GLTFLoader();
+            gltfLoader.load('https://static.wixstatic.com/3d/8f321f_2595685363dc4747a3012f1db04c8655.glb', (gltf) => {
+                model = gltf.scene;
+
+                model.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        child.material.metalness = 1;
+                        child.material.roughness = 0.05;
+                        child.material.envMap = scene.environment;
+                        child.material.envMapIntensity = 1;
+                        child.material.needsUpdate = true;
+                    }
+                });
+
+                scene.add(model);
+            }, undefined, (error) => {
+                console.error('Error al cargar el modelo GLB:', error);
+                alert("Hubo un error al cargar el modelo. Por favor, inténtalo de nuevo.");
+            });
+        }, undefined, (error) => {
+            console.error('Error al cargar el entorno:', error);
+            alert("Hubo un error al cargar el entorno. Por favor, inténtalo de nuevo.");
+        });
+
+        // Iluminación
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 1);
+        pointLight.position.set(5, 5, 5);
+        scene.add(pointLight);
+
+        // Rotación por arrastre
+        function onStart(event) {
+            isDragging = true;
+            velocity = 0;
+            previousMousePosition.x = event.clientX || event.touches[0].clientX;
+            event.preventDefault();
+        }
+
+        function onEnd() {
+            isDragging = false;
+        }
+
+        function onMove(event) {
+            if (!isDragging || !model) return;
+
+            const clientX = event.clientX || event.touches[0].clientX;
+            const deltaMove = { x: clientX - previousMousePosition.x };
+
+            const rotationSpeed = 0.005;
+            velocity = deltaMove.x * rotationSpeed;
+            model.rotation.y += velocity;
+
+            previousMousePosition.x = clientX;
+        }
+
+        document.addEventListener('mousedown', onStart);
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('touchstart', onStart);
+        document.addEventListener('touchend', onEnd);
+        document.addEventListener('touchmove', onMove);
+
+        // Abrir ventana de selección de archivos al dar clic en el SVG
+        document.getElementById('uploadButton').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        // Validación y carga de textura
+        function validateImage(file) {
+            return new Promise((resolve, reject) => {
+                if (file.type !== 'image/jpeg') {
+                    reject('Formato permitido: JPEG');
+                    return;
+                }
+
+                if (file.size > 1 * 1024 * 1024) {
+                    reject('Tamaño máximo: 1 MB.');
+                    return;
+                }
+
+                const img = new Image();
+                img.onload = () => {
+                    if (img.width > 2048 || img.height > 2048) {
+                        reject('Medida máxima: 2048x2048 píxeles.');
+                    } else {
+                        resolve(file);
+                    }
+                };
+                img.onerror = () => reject('Error al cargar la imagen.');
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        document.getElementById('fileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                validateImage(file)
+                    .then((validFile) => {
+                        const imageURL = URL.createObjectURL(validFile);
+                        textureLoader.load(imageURL, (texture) => {
+                            if (model) {
+                                model.traverse((child) => {
+                                    if (child.isMesh && child.material && child.name === "ETIQUETA") {
+                                        if (child.geometry.attributes.uv) {
+                                            child.material.map = texture;
+                                            child.material.map.flipY = false;
+                                            child.material.needsUpdate = true;
+                                        }
+                                    }
+                                });
+                            }
+                            URL.revokeObjectURL(imageURL);
+                        });
+                    })
+                    .catch((error) => {
+                        alert(error);
+                    });
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!isDragging && velocity) {
+                velocity *= 0.95;
+                if (Math.abs(velocity) < 0.0001) velocity = 0;
+                if (model) model.rotation.y += velocity;
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
